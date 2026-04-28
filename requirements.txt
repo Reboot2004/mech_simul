@@ -1,0 +1,6 @@
+mujoco
+numpy
+opencv-python
+ultralytics
+imageio
+imageio-ffmpeg

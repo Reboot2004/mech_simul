@@ -1,0 +1,26 @@
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*.pyd
+
+# Virtual environments
+.venv/
+.venv-day5/
+venv/
+env/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Generated outputs and reports
+outputs/
+
+# Downloaded model weights and other large artifacts
+yolov8n.pt
+
+# Local dependency checkout used by the H1 scene
+mujoco_menagerie/
+assets/mujoco_menagerie/
