@@ -13,7 +13,7 @@ from typing import Dict, List, Optional
 import cv2
 import numpy as np
 
-from day3_planner import AStarPlanner, PlannedStep, PlannerResult
+from planner import AStarPlanner, PlannedStep, PlannerResult
 from h1_controller import H1TaskController
 from env import TruckLoadingEnv
 

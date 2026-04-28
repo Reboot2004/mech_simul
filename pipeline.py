@@ -14,9 +14,9 @@ import cv2
 import imageio.v2 as imageio
 import numpy as np
 
-from day2_vision import TopDownVisionPipeline
-from day3_planner import AStarPlanner
-from day4_executor import SimulationExecutor
+from vision import TopDownVisionPipeline
+from planner import AStarPlanner
+from executor import SimulationExecutor
 from env import TruckLoadingEnv
 
 
