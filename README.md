@@ -76,4 +76,4 @@ The pipeline writes its artifacts into the output directory you pass in:
 ## Notes
 
 - `outputs/`, virtual environments, local Menagerie assets, and downloaded YOLO weights are ignored by git.
-- The H1 control layer keeps the robot upright during the rollout, but it is still a posture controller rather than full humanoid locomotion.
+- The H1 control layer keeps the robot upright and adds a simple kinematic walk cycle for the rollout, but it is still not full humanoid locomotion.

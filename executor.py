@@ -15,7 +15,7 @@ import numpy as np
 
 from planner import AStarPlanner, PlannedStep, PlannerResult
 from h1_controller import H1TaskController
-from env import TruckLoadingEnv
+from env import TRUCK_SLOTS, TruckLoadingEnv
 
 
 @dataclass
@@ -52,7 +52,39 @@ class SimulationExecutor:
         self.camera_name = camera_name
         self.frame_width, self.frame_height = frame_size
         self.controller = H1TaskController(env.model, env.data)
-        self.hold_steps = 1
+        self.hold_steps = 0
+
+    def _approach_point(self, target_position: np.ndarray, clearance: float = 0.55) -> np.ndarray:
+        current_xy = np.array(self.env.data.qpos[:2], dtype=float)
+        target_xy = np.array(target_position[:2], dtype=float)
+        delta = target_xy - current_xy
+        distance = float(np.linalg.norm(delta))
+        if distance > 1e-6:
+            target_xy = target_xy - delta / distance * clearance
+        return np.array([float(target_xy[0]), float(target_xy[1]), self.controller.home_height], dtype=float)
+
+    def _walk_segment(self, target_position: np.ndarray, label: str, steps: int = 6) -> float:
+        start_xy = np.array(self.env.data.qpos[:2], dtype=float)
+        self.controller.start_walk(target_position, steps=steps)
+        capture_every = 2 if steps >= 4 else 1
+
+        for index in range(steps):
+            self.controller.step(1)
+            if index % capture_every == 0 or index == steps - 1:
+                self._capture_and_store_frame(f"{label} {index + 1}/{steps}")
+
+        end_xy = np.array(self.env.data.qpos[:2], dtype=float)
+        distance = float(np.linalg.norm(end_xy - start_xy))
+        self.env.total_distance += distance
+        self.env.action_log.append(label)
+        return distance
+
+    def _capture_and_store_frame(self, action_text: str) -> None:
+        frame = self._capture_frame(action_text, self._frame_index)
+        frame_path = self._frame_dir / f"frame_{self._frame_index:04d}.png"
+        cv2.imwrite(str(frame_path), cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+        self.frame_paths.append(str(frame_path))
+        self._frame_index += 1
 
     def _render_panel(self, width: int, height: int, lines: List[str]) -> np.ndarray:
         panel = np.full((height, width, 3), 28, dtype=np.uint8)
@@ -92,62 +124,60 @@ class SimulationExecutor:
 
     def execute(self, plan: PlannerResult, output_dir: str = "outputs/day4") -> ExecutionResult:
         output_path = Path(output_dir)
-        frame_dir = output_path / "frames"
-        frame_dir.mkdir(parents=True, exist_ok=True)
+        self._frame_dir = output_path / "frames"
+        self._frame_dir.mkdir(parents=True, exist_ok=True)
 
         self.env.reset()
         self.controller.reset()
 
         steps: List[ExecutionStep] = []
-        frame_paths: List[str] = []
-        frame_index = 0
-
-        def save_frame(action_text: str) -> None:
-            nonlocal frame_index
-            frame = self._capture_frame(action_text, frame_index)
-            frame_path = frame_dir / f"frame_{frame_index:04d}.png"
-            cv2.imwrite(str(frame_path), cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
-            frame_paths.append(str(frame_path))
-            frame_index += 1
+        self.frame_paths: List[str] = []
+        self._frame_index = 0
 
         self.controller.set_mode("stand")
         self.controller.step(24)
-        save_frame("initial state")
+        self._capture_and_store_frame("initial state")
         for _ in range(self.hold_steps):
             self.controller.step(1)
-            save_frame("standing by")
+            self._capture_and_store_frame("standing by")
 
         success = True
         for index, step in enumerate(plan.steps, start=1):
+            box_approach = self._approach_point(self.env.get_box_position(step.box_id))
+            self._walk_segment(box_approach, f"walk to {step.box_id}")
+
             self.controller.set_mode("pick", box_id=step.box_id, slot_id=step.slot_id)
-            self.controller.step(18)
+            self.controller.step(12)
             pick_ok = self.env.pick(step.box_id)
-            save_frame(f"pick({step.box_id})")
+            self._capture_and_store_frame(f"pick({step.box_id})")
             for _ in range(self.hold_steps):
                 self.controller.step(1)
-                save_frame(f"holding {step.box_id}")
+                self._capture_and_store_frame(f"holding {step.box_id}")
 
             move_ok = False
             place_ok = False
             if pick_ok:
+                slot_approach = self._approach_point(np.array(TRUCK_SLOTS[step.slot_id]["pos"], dtype=float))
+                self._walk_segment(slot_approach, f"walk to {step.slot_id}")
+
                 self.controller.set_mode("move", box_id=step.box_id, slot_id=step.slot_id)
-                self.controller.step(18)
+                self.controller.step(12)
                 move_ok = self.env.move(step.slot_id)
-                save_frame(f"move({step.slot_id})")
+                self._capture_and_store_frame(f"move({step.slot_id})")
                 for _ in range(self.hold_steps):
                     self.controller.step(1)
-                    save_frame(f"holding {step.slot_id}")
+                    self._capture_and_store_frame(f"holding {step.slot_id}")
 
             if pick_ok and move_ok:
                 self.controller.set_mode("place", box_id=step.box_id, slot_id=step.slot_id)
-                self.controller.step(18)
+                self.controller.step(12)
                 place_ok = self.env.place(step.box_id, step.slot_id)
-                save_frame(f"place({step.box_id}, {step.slot_id})")
+                self._capture_and_store_frame(f"place({step.box_id}, {step.slot_id})")
                 for _ in range(self.hold_steps):
                     self.controller.step(1)
-                    save_frame(f"placed {step.box_id}")
+                    self._capture_and_store_frame(f"placed {step.box_id}")
             else:
-                save_frame(f"skipped place({step.box_id}, {step.slot_id})")
+                self._capture_and_store_frame(f"skipped place({step.box_id}, {step.slot_id})")
 
             steps.append(
                 ExecutionStep(
@@ -167,14 +197,14 @@ class SimulationExecutor:
                 break
 
         self.controller.set_mode("stand")
-        self.controller.step(18)
-        save_frame("final state")
+        self.controller.step(12)
+        self._capture_and_store_frame("final state")
 
         metrics = self.env.compute_metrics()
         result = ExecutionResult(
             success=success,
             steps=steps,
-            frame_paths=frame_paths,
+            frame_paths=self.frame_paths,
             metrics=metrics,
         )
 
